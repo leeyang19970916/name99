@@ -1,0 +1,402 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>5/20texting</title>
+    <script src="https://cdn.bootcdn.net/ajax/libs/socket.io/4.4.1/socket.io.js"></script>
+    <script src="https://code.jquery.com/jquery-1.11.1.js"></script>
+    <!-- <link rel="stylesheet" href="all.css"> -->
+</head>
+
+<body>
+    <header>
+        <h1><span>
+                5/20
+            </span> texting-formal</h1>
+    </header>
+    <section>
+        <video playsinline autoplay src="" id="localVideo"></video>
+        <video playsinline autoplay muted src="" id="remoteVideo"></video>
+        <!-- playsinline autoplay muted -->
+        
+    </section>
+    <div id="content"></div>
+    <footer>
+        <a href="#" id="StartBTN">Start(OpenCamera)</a>
+        <a href="#" id="leaveBTN">leaveRoom</a>
+        <a href="#" id="canvas">take snapshot</a>
+        <!-- <button>55555555555555555555555</button> -->
+        <!-- <button id="qqqqqq">eeeeeeeeeeeeeeeeee</button> -->
+    </footer>
+    <div style="display: flex;justify-content:center">
+        <canvas ></canvas>
+    </div>
+</body>
+
+</html>
+<script src="https://webrtc.github.io/adapter/adapter-latest.js"></script>
+<script>
+    const canvas = window.canvas = document.querySelector('canvas');
+    const video = document.querySelector('video');
+    canvas.width = 480;
+    canvas.height = 360;
+    const button = document.querySelector('#canvas');
+    button.onclick = function () {
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+        canvas.getContext('2d').drawImage(video, 0, 0, canvas.width, canvas.height);
+    };
+</script>
+<script>
+    // 參數
+    const servers = {
+        iceServers: [
+            { 'urls': 'stun:stun.l.google.com:19302' },
+            { 'urls': 'stun:stun1.l.google.com:19302' }
+        ],
+
+        iceCandidatePoolSize: 10,
+    }
+    var videoConfig = {
+        width: { min: 320, ideal: 1280 },
+        height: { min: 240, ideal: 720 },
+        aspectRatio: { exact: 1.77 },
+
+    }
+    var audioConfig = {
+        volume: 1.0,
+        echoCancellation: true,
+        noiseSuppression: true
+    }
+
+    // 參數
+    var localVideo = document.querySelector("#localVideo")
+    var remoteVideo = document.querySelector("#remoteVideo")
+    var StartBTN = document.querySelector("#StartBTN")
+    StartBTN.addEventListener("click", Start)
+    var leaveBTN = document.querySelector("#leaveBTN")
+    var content = document.querySelector("#content")
+
+    // var qqqqqq=document.querySelector("#qqqqqq")
+    leaveBTN.addEventListener("click", Leave)
+    var myRoomId = "c-d-p"
+	var socket = io("https://socket.sprinf.com:5502")
+    let localStream = null
+    let remoteStream = null
+    socket.on("connect", () => {
+        console.log(socket.id)
+    })
+    socket.on("OnJoinRoom", (data) => {
+        let d = JSON.parse(data)
+        socket.withId = d.from
+        startCall()
+    })
+    socket.on("OnLeaveRoom", (data) => {
+        Leave()
+        console.log("離開房間了喔")
+    })
+    socket.on("OnJsonData", (data) => {
+
+        let d = JSON.parse(data)
+        if (d.action == "on-webrtc-create") {
+            socket.withId = d.from
+            onCreate()
+        }
+        if (d.action == "on-webrtc-start") {
+            onStart()
+        }
+        if (d.action == "on-webrtc-offer") {
+            if (d.extra && d.extra.offer) {
+                onOffer(d.extra.offer)
+            }
+        }
+        if (d.action == "on-webrtc-answer") {
+            if (d.extra && d.extra.answer) {
+                onAnswer(d.extra.answer)
+            }
+        }
+        if (d.action == "on-webrtc-icecandidate") {
+            if (d.extra && d.extra.candidate) {
+                oneIcecandidate(d.extra.candidate)
+            }
+        }
+    })
+    function Start() {
+        let d = {
+            from: socket.id,
+            to: "",
+            action: "on-webrtc-room",
+            extra: {}
+        }
+        content.innerHTML = `<p>進入房間，請稍後....</p>`
+        socket.emit("JoinRoom", myRoomId, JSON.stringify(d))
+
+    }
+    async function onCreate() {
+        await openLocalCamera()
+        await createPeerConnection()
+        await localConnectPC()
+        await sendWebRTCData("on-webrtc-start", {})
+    }
+    async function onStart() {
+        await createPeerConnection()
+        await localConnectPC()
+        await createOffer()
+    }
+    async function startCall(fromID) {
+        // 這個階段A獲得了B的ID 要開影像
+        await openLocalCamera()
+        await sendWebRTCData("on-webrtc-create", {})
+    }
+    async function localConnectPC() {
+        try {
+            let pc = socket.pc
+            if (localStream) {
+                localStream.getTracks().forEach(track => {
+                    pc.addTrack(track, localStream)
+                });
+            }
+        } catch (e) {
+            console.log(`綁定不順利${e}`)
+        }
+
+    }
+    async function createOffer() {
+        let pc = socket.pc
+        let offerOptions = {
+            offerToReceiveAudio: 1,
+            offerToReceiveVideo: 1
+        }
+        try {
+            let offerDes = await pc.createOffer(offerOptions)
+            await pc.setLocalDescription(offerDes)
+            await sendWebRTCData("on-webrtc-offer", { offer: offerDes })
+        } catch (e) {
+            console.log(`${e}OFFER創造失敗`)
+        }
+
+    }
+    async function createPeerConnection() {
+        let pc = new RTCPeerConnection(servers)
+        socket.pc = pc
+        pc.ontrack = (e) => {
+            remoteStream.addTrack(e.track, remoteStream)
+        }
+        pc.onicecandidate = (e) => {
+            sendWebRTCData("on-webrtc-icecandidate", { candidate: e.candidate })
+        }
+        pc.oniceconnectionstatechange = (e) => {
+            console.log(`${e}PC連線狀況`)
+            if (pc.iceConnectionState == "disconnected") {
+                handUp()
+                alert("對方已斷線")
+            }
+        }
+    }
+    async function sendWebRTCData(action = "", extra = {}) {
+        // 集中站 action的傳導
+        let d = {
+            from: socket.id,
+            to: socket.withId,
+            action: action,
+            extra: extra
+        }
+        socket.emit("JsonData", socket.withId, JSON.stringify(d))
+        // 帶對方ID
+    }
+    async function onOffer(offerDes) {
+        await completeRemoteDescription(offerDes)
+        await createAnswer()
+    }
+    async function completeRemoteDescription(offerDes) {
+        console.log(offerDes)
+        let pc = socket.pc
+        try {
+            let des = new RTCSessionDescription(offerDes)
+            // 沒有一定需要
+            await pc.setRemoteDescription(offerDes)
+        } catch (e) {
+            console.log(`${e}儲存OFFER遠端失敗`)
+        }
+    }
+    async function createAnswer() {
+        let pc = socket.pc
+        try {
+            const answerDes = await pc.createAnswer()
+            await pc.setLocalDescription(answerDes)
+            await sendWebRTCData("on-webrtc-answer", { answer: answerDes })
+        } catch (e) {
+            console.log(`${e}創造ANSWER失敗`)
+        }
+    }
+    async function onAnswer(answer) {
+        await completeRemoteDescription(answer)
+    }
+    async function openLocalCamera() {
+        try {
+            if (!localStream) {
+                const stream = await navigator.mediaDevices.getUserMedia({ video: videoConfig, audio: audioConfig });
+                localVideo.srcObject = stream
+                localStream = stream
+            }
+            if (!remoteStream) {
+                remoteStream = new MediaStream()
+                remoteVideo.srcObject = remoteStream
+            }
+
+        } catch (e) {
+            console.log(`${e}開鏡頭錯誤`)
+        }
+
+    }
+    async function oneIcecandidate(candidate) {
+        let pc = socket.pc
+        content.style.display = "none"
+        try {
+            await pc.addIceCandidate(candidate)
+        } catch (e) {
+            console.log(`${e}candidate錯誤`)
+        }
+
+    }
+    async function Leave() {
+        await handUp()
+        // socket.emit("LeaveRoom",myRoomId)
+        // let pc = socket.pc
+        // console.log(pc)
+        // pc.close()
+        // pc = null
+        // leaveBTN.disabled=false
+        // StartBTN.disabled=false
+        leaveBTN.style.background = "grey"
+        StartBTN.style.background = "grey"
+        // qqqqqq.disabled=true
+    }
+    async function handUp() {
+        if (localStream) {
+            localStream.getTracks().forEach(track => {
+                track.stop()
+            })
+            // 問號
+            localStream = null
+        }
+        if (remoteStream) {
+            remoteStream = null
+        }
+        await closePeerConnection()
+        // await Leave()
+    }
+    async function closePeerConnection() {
+        await socket.pc.close()
+        socket.withId = null
+        socket.pc = null
+    }
+
+</script>
+<style>
+/* http://meyerweb.com/eric/tools/css/reset/ 
+   v2.0 | 20110126
+   License: none (public domain)
+*/
+
+html, body, div, span, applet, object, iframe,
+h1, h2, h3, h4, h5, h6, p, blockquote, pre,
+a, abbr, acronym, address, big, cite, code,
+del, dfn, em, img, ins, kbd, q, s, samp,
+small, strike, strong, sub, sup, tt, var,
+b, u, i, center,
+dl, dt, dd, ol, ul, li,
+fieldset, form, label, legend,
+table, caption, tbody, tfoot, thead, tr, th, td,
+article, aside, canvas, details, embed, 
+figure, figcaption, footer, header, hgroup, 
+menu, nav, output, ruby, section, summary,
+time, mark, audio, video {
+	margin: 0;
+	padding: 0;
+	border: 0;
+	font-size: 100%;
+	font: inherit;
+	vertical-align: baseline;
+}
+/* HTML5 display-role reset for older browsers */
+article, aside, details, figcaption, figure, 
+footer, header, hgroup, menu, nav, section {
+	display: block;
+}
+body {
+	line-height: 1;
+}
+ol, ul {
+	list-style: none;
+}
+blockquote, q {
+	quotes: none;
+}
+blockquote:before, blockquote:after,
+q:before, q:after {
+	content: '';
+	content: none;
+}
+table {
+	border-collapse: collapse;
+	border-spacing: 0;
+}
+header{
+    text-align: center;
+    margin: 45px 0;
+}
+header h1{
+    color: rgb(54, 53, 53);
+    font-weight: bolder;
+    font-size: 45px;
+}
+header h1 span{
+    padding: 0 25px;
+}
+section{
+    display: flex;
+    justify-content: center;
+    align-items: center;
+}
+section video{
+    border:  4px rgb(45, 123, 160) solid;
+    border-radius: 15px;
+    padding: 0 25px;
+    margin:  0 20px;
+    width: 400px;
+}
+footer{
+    margin: 55px 0 55px 470px;
+}
+footer a{
+    text-decoration: none;
+    color: white;
+    background-color: rgb(180, 70, 92);
+    border-radius: 15px;
+    padding: 25px 35px;
+    font-weight: bolder;
+    font-size: 25px;
+    margin: 0 10px;
+}
+footer a:hover{
+    background-color: rgb(214, 102, 125);
+}
+#content{
+    margin: 30px 0;
+    text-align: center;
+    font-size: 50px;
+    color: rgb(90, 82, 82);
+    font-weight: bolder;
+}
+/* JoinRoom */
+/* OnJoinRoom */
+/* JsonData */
+/* OnJsonData */
+</style>
+<!-- let const  -->
+<!-- const用途 -->
+<!-- RTCSessionDescription -->
