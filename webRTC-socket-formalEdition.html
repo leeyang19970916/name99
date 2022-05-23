@@ -21,7 +21,7 @@
         <video playsinline autoplay src="" id="localVideo"></video>
         <video playsinline autoplay muted src="" id="remoteVideo"></video>
         <!-- playsinline autoplay muted -->
-        
+
     </section>
     <div id="content"></div>
     <footer>
@@ -32,9 +32,8 @@
         <!-- <button id="qqqqqq">eeeeeeeeeeeeeeeeee</button> -->
     </footer>
     <div style="display: flex;justify-content:center">
-        <canvas ></canvas>
+        <canvas></canvas>
     </div>
-    <div>全新狀態 來摟 猴猴猴</div>
 </body>
 
 </html>
@@ -84,7 +83,7 @@
     // var qqqqqq=document.querySelector("#qqqqqq")
     leaveBTN.addEventListener("click", Leave)
     var myRoomId = "c-d-p"
-	var socket = io("https://socket.sprinf.com:5502")
+    var socket = io("https://socket.sprinf.com:5502")
     let localStream = null
     let remoteStream = null
     socket.on("connect", () => {
